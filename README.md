@@ -7,21 +7,49 @@ y consultar un reporte de horas acumuladas.
 
 - **Next.js 16** (App Router) + **React 19** + **TypeScript**
 - **Tailwind CSS 4** para la interfaz
-- **SQLite** vía `better-sqlite3` (archivo local en `data/control-horas.db`)
+- **Base de datos**: SQLite vía `better-sqlite3` (archivo local en
+  `data/control-horas.db`) en desarrollo, y **Turso (libSQL en la nube)** cuando
+  está desplegado en Vercel.
 
 ## Puesta en marcha
 
 ```bash
-npm install     # instala dependencias (mejor-sqlite3 incluido)
+npm install     # instala dependencias
 npm run dev     # http://localhost:3000
 ```
 
-Para producción:
+Para producción local:
 
 ```bash
 npm run build
 npm run start
 ```
+
+## Desplegar en Vercel (requiere Turso)
+
+> ⚠️ **Importante**: SQLite en archivo **no funciona en Vercel** (el sistema de
+> archivos de los serverless es de solo lectura y efímero). La app usa
+> automáticamente **Turso** cuando existen estas variables de entorno:
+
+1. Crea una cuenta en [Turso](https://turso.tech) y crea una base de datos
+   (p. ej. `control-horas`).
+2. Obtén la URL de tu base (algo como `libsql://control-horas-<usuario>.turso.io`)
+   y un token de acceso (en el panel: *Tokens* → crear token).
+3. En tu proyecto de Vercel: **Settings → Environment Variables**, agrega:
+   - `TURSO_DATABASE_URL` = la URL de tu base de Turso
+   - `TURSO_AUTH_TOKEN` = el token de acceso
+4. Sube los cambios del repo y vuelve a desplegar.
+
+En desarrollo local no necesitas Turso: sin esas variables, la app usa el
+archivo `data/control-horas.db` como antes.
+
+## API
+
+- `GET/POST /api/usuarios` — listar / crear usuario
+- `PUT/DELETE /api/usuarios/[id]` — renombrar / eliminar usuario
+- `GET/POST /api/registros` — listar / crear registro
+- `PUT/DELETE /api/registros/[id]` — actualizar / eliminar registro
+- `GET /api/reporte?mes=YYYY-MM&usuario_id=N` — reporte de horas
 
 ## Funcionalidades
 
@@ -60,6 +88,13 @@ src/
 
 ## Base de datos
 
-El archivo SQLite se crea automáticamente en `data/control-horas.db` (está en
-`.gitignore`). Las fotos se guardan como data URL (máx. 5 MB) en la tabla
-`registros`.
+- **Local**: SQLite en `data/control-horas.db` (en `.gitignore`).
+- **Vercel**: Turso (libSQL en la nube), activado con las variables
+  `TURSO_DATABASE_URL` y `TURSO_AUTH_TOKEN`. El esquema se crea solo al primer
+  uso.
+
+Las fotos se guardan como data URL (máx. 5 MB) en la tabla `registros`.
+
+> Nota: los datos de SQLite local y los de Turso son independientes. Si ya usaste
+> la app localmente y quieres conservar esos datos en producción, habrá que
+> exportarlos e importarlos a Turso.

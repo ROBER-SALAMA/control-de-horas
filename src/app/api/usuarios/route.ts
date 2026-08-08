@@ -1,45 +1,57 @@
 import { NextResponse } from "next/server";
-import db from "@/lib/db";
+import { execute, initDb, select, selectOne } from "@/lib/db";
+import { conManejoErrores } from "@/lib/routeUtils";
 import type { Usuario } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
 
 export async function GET() {
-  const usuarios = db
-    .prepare("SELECT * FROM usuarios ORDER BY nombre COLLATE NOCASE")
-    .all() as Usuario[];
-  return NextResponse.json(usuarios);
+  return conManejoErrores(async () => {
+    await initDb();
+    const usuarios = await select<Usuario>(
+      "SELECT * FROM usuarios ORDER BY nombre COLLATE NOCASE",
+    );
+    return NextResponse.json(usuarios);
+  });
 }
 
 export async function POST(request: Request) {
-  let body: { nombre?: unknown };
-  try {
-    body = await request.json();
-  } catch {
-    return NextResponse.json(
-      { error: "Cuerpo de la petición inválido" },
-      { status: 400 },
-    );
-  }
+  return conManejoErrores(async () => {
+    await initDb();
 
-  const nombre = typeof body.nombre === "string" ? body.nombre.trim() : "";
-  if (!nombre) {
-    return NextResponse.json(
-      { error: "El nombre es obligatorio" },
-      { status: 400 },
-    );
-  }
+    let body: { nombre?: unknown };
+    try {
+      body = await request.json();
+    } catch {
+      return NextResponse.json(
+        { error: "Cuerpo de la petición inválido" },
+        { status: 400 },
+      );
+    }
 
-  try {
-    const info = db.prepare("INSERT INTO usuarios (nombre) VALUES (?)").run(nombre);
-    const usuario = db
-      .prepare("SELECT * FROM usuarios WHERE id = ?")
-      .get(info.lastInsertRowid) as Usuario;
-    return NextResponse.json(usuario, { status: 201 });
-  } catch {
-    return NextResponse.json(
-      { error: "Ya existe un usuario con ese nombre" },
-      { status: 409 },
-    );
-  }
+    const nombre = typeof body.nombre === "string" ? body.nombre.trim() : "";
+    if (!nombre) {
+      return NextResponse.json(
+        { error: "El nombre es obligatorio" },
+        { status: 400 },
+      );
+    }
+
+    try {
+      const { lastInsertRowid } = await execute(
+        "INSERT INTO usuarios (nombre) VALUES (?)",
+        [nombre],
+      );
+      const usuario = await selectOne<Usuario>(
+        "SELECT * FROM usuarios WHERE id = ?",
+        [lastInsertRowid],
+      );
+      return NextResponse.json(usuario, { status: 201 });
+    } catch {
+      return NextResponse.json(
+        { error: "Ya existe un usuario con ese nombre" },
+        { status: 409 },
+      );
+    }
+  });
 }

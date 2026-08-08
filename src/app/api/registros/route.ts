@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
-import db from "@/lib/db";
+import { execute, initDb, select, selectOne } from "@/lib/db";
+import { conManejoErrores } from "@/lib/routeUtils";
 import type { Registro } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
@@ -19,72 +20,80 @@ function limpiarFoto(foto: unknown): string | null {
 }
 
 export async function GET(request: Request) {
-  const { searchParams } = new URL(request.url);
-  const usuarioId = searchParams.get("usuario_id");
-  const fecha = searchParams.get("fecha");
+  return conManejoErrores(async () => {
+    await initDb();
+    const { searchParams } = new URL(request.url);
+    const usuarioId = searchParams.get("usuario_id");
+    const fecha = searchParams.get("fecha");
 
-  const condiciones: string[] = [];
-  const params: unknown[] = [];
-  if (usuarioId) {
-    condiciones.push("r.usuario_id = ?");
-    params.push(usuarioId);
-  }
-  if (fecha) {
-    condiciones.push("r.fecha = ?");
-    params.push(fecha);
-  }
+    const condiciones: string[] = [];
+    const args: unknown[] = [];
+    if (usuarioId) {
+      condiciones.push("r.usuario_id = ?");
+      args.push(usuarioId);
+    }
+    if (fecha) {
+      condiciones.push("r.fecha = ?");
+      args.push(fecha);
+    }
 
-  const sql =
-    SELECT +
-    (condiciones.length ? ` WHERE ${condiciones.join(" AND ")}` : "") +
-    " ORDER BY r.fecha DESC, r.id DESC";
+    const sql =
+      SELECT +
+      (condiciones.length ? ` WHERE ${condiciones.join(" AND ")}` : "") +
+      " ORDER BY r.fecha DESC, r.id DESC";
 
-  const registros = db.prepare(sql).all(...params) as Registro[];
-  return NextResponse.json(registros);
+    const registros = await select<Registro>(sql, args);
+    return NextResponse.json(registros);
+  });
 }
 
 export async function POST(request: Request) {
-  let body: Record<string, unknown>;
-  try {
-    body = await request.json();
-  } catch {
-    return NextResponse.json(
-      { error: "Cuerpo de la petición inválido" },
-      { status: 400 },
+  return conManejoErrores(async () => {
+    await initDb();
+
+    let body: Record<string, unknown>;
+    try {
+      body = await request.json();
+    } catch {
+      return NextResponse.json(
+        { error: "Cuerpo de la petición inválido" },
+        { status: 400 },
+      );
+    }
+
+    const { usuario_id, fecha, foto, hora_ingreso, hora_salida } = body;
+
+    if (!usuario_id || !fecha || typeof hora_ingreso !== "string" || !hora_ingreso) {
+      return NextResponse.json(
+        { error: "Faltan campos obligatorios (usuario, fecha, hora de ingreso)" },
+        { status: 400 },
+      );
+    }
+
+    const usuario = await selectOne<{ id: number }>(
+      "SELECT id FROM usuarios WHERE id = ?",
+      [usuario_id],
     );
-  }
+    if (!usuario) {
+      return NextResponse.json({ error: "El usuario no existe" }, { status: 400 });
+    }
 
-  const { usuario_id, fecha, foto, hora_ingreso, hora_salida } = body;
-
-  if (!usuario_id || !fecha || typeof hora_ingreso !== "string" || !hora_ingreso) {
-    return NextResponse.json(
-      { error: "Faltan campos obligatorios (usuario, fecha, hora de ingreso)" },
-      { status: 400 },
-    );
-  }
-
-  const usuario = db
-    .prepare("SELECT id FROM usuarios WHERE id = ?")
-    .get(usuario_id);
-  if (!usuario) {
-    return NextResponse.json({ error: "El usuario no existe" }, { status: 400 });
-  }
-
-  const info = db
-    .prepare(
+    const { lastInsertRowid } = await execute(
       `INSERT INTO registros (usuario_id, fecha, foto, hora_ingreso, hora_salida)
        VALUES (?, ?, ?, ?, ?)`,
-    )
-    .run(
-      usuario_id,
-      fecha,
-      limpiarFoto(foto),
-      hora_ingreso,
-      typeof hora_salida === "string" && hora_salida ? hora_salida : null,
+      [
+        usuario_id,
+        fecha,
+        limpiarFoto(foto),
+        hora_ingreso,
+        typeof hora_salida === "string" && hora_salida ? hora_salida : null,
+      ],
     );
 
-  const registro = db
-    .prepare(`${SELECT} WHERE r.id = ?`)
-    .get(info.lastInsertRowid) as Registro;
-  return NextResponse.json(registro, { status: 201 });
+    const registro = await selectOne<Registro>(
+      `${SELECT} WHERE r.id = ?`,
+      [lastInsertRowid],
+    );
+    return NextResponse.json(registro, { status: 201 });
+  });
 }
